@@ -3,18 +3,58 @@
 !(import! &self nars-util)
 ;;!(import! &self utils)
 
-(= (Truth_c2w $c) (/ $c (- 1 $c)))
-(= (Truth_w2c $w) (/ $w (+ $w 1)))
-(= (Truth_Deduction ($f1 $c1) ($f2 $c2)) ((* $f1 $f2) (* (* $f1 $f2) (* $c1 $c2))))
-(= (Truth_Abduction ($f1 $c1) ($f2 $c2)) ($f2 (Truth_w2c (* (* $f1 $c1) $c2))))
-(= (Truth_Induction $T1 $T2) (Truth_Abduction $T2 $T1))
-(= (Truth_Exemplification ($f1 $c1) ($f2 $c2)) (1.0 (Truth_w2c (* (* $f1 $f2) (* $c1 $c2)))))
+;;(A --> B) & (B --> C) |- (A --> C) deduction
+;;(B --> A) & (B --> C) |- (A --> C) abduction
+;;(A --> B) & (C --> B) |- (A --> C) induction
+;;(A --> B) & (B --> C) |- (C --> A) exemplification
+
+
+
+(= (k) 1) ;; this is experience parameter
+(= (Truth_w2c $w) (/ $w (+ $w (k))))
+
+;;Deduction implementation in NARS
+(= (narsFreqDeduction $f1 $f2)
+   (/ (* $f1 $f2) (+ $f1 (* $f2 (- 1 $f1)))))
+(= (narsConfDeduction $f1 $f2 $c1 $c2)
+   ( * (* $c1 $c2) (+ $f1 (* $f2 (- 1 $f1)))))
+(= (narsPowerDeduction $f1 $f2 $c1 $c2)
+   (* (narsFreqDeduction $f1 $f2)
+      (narsConfDeduction $f1 $f2 $c1 $c2)))
+
+;;Induction implementation in NARS
+(= (narsFreqInduction $f1 $f2) $f1)
+(= (narsConfInduction $f1 $f2 $c1 $c2)
+    (Truth_w2c (* (* $f2 $c1) $c2)))
+(= (narsPowerInduction $f1 $f2 $c1 $c2)
+   (* (narsFreqInduction $f1 $f2)
+      (narsConfInduction $f1 $f2 $c1 $c2)))
+
+;;Abduction implementation in NARS
+(= (narsFreqAbduction $f1 $f2) $f2)
+(= (narsConfAbduction $f1 $f2 $c1 $c2)
+    (Truth_w2c (* (* $f1 $c1) $c2)))
+(= (narsPowerAbduction $f1 $f2 $c1 $c2)
+   (* (narsFreqAbduction $f1 $f2)
+      (narsConfAbduction $f1 $f2 $c1 $c2)))
+
+
+(= (DeductiveTruth ($f1 $c1) ($f2 $c2)) 
+   ((narsFreqDeduction $f1 $f2) (narsConfDeduction $f1 $f2 $c1 $c2)))
+(= (AbductiveTruth ($f1 $c1) ($f2 $c2)) 
+    ((narsFreqAbduction $f1 $f2) (narsConfAbduction $f1 $f2 $c1 $c2)))
+(= (InductiveTruth $T1 $T2) 
+   (AbductiveTruth $T2 $T1))
+
+(= (ExemplificationTruth ($f1 $c1) ($f2 $c2)) 
+   (1.0 (Truth_w2c (* (* $f1 $f2) (* $c1 $c2)))))
+
+
 ;;NAL-1
-;;!Syllogistic rules for Inheritance:
-(= (reason (($a --> $b) $T1) (($b --> $c) $T2)) (($a --> $c) (Truth_Deduction $T1 $T2)))
-(= (reason (($a --> $b) $T1) (($a --> $c) $T2)) (($c --> $b) (Truth_Induction $T1 $T2)))
-(= (reason (($a --> $c) $T1) (($b --> $c) $T2)) (($b --> $a) (Truth_Abduction $T1 $T2)))
-(= (reason (($a --> $b) $T1) (($b --> $c) $T2)) (($c --> $a) (Truth_Exemplification $T1 $T2)))
+(= (reason (($a --> $b) $T1) (($b --> $c) $T2)) (($a --> $c) (DeductiveTruth $T1 $T2)))
+(= (reason (($a --> $b) $T1) (($c --> $b) $T2)) (($a --> $c) (AbductiveTruth $T1 $T2)))
+(= (reason (($b --> $a) $T1) (($b --> $c) $T2)) (($a --> $c) (InductiveTruth $T1 $T2)))
+(= (reason (($a --> $b) $T1) (($b --> $c) $T2)) (($c --> $a) (ExemplificationTruth $T1 $T2)))
 (= (reason (($a --> $b) $T1) (($c --> $d) $T2)) (if (== (intersection-atom ($a $b) ($c $d)) ()) () (empty)))
 (= (reason (($a --> $b) $T1) (($a --> $b) $T1)) ())
 
@@ -35,10 +75,17 @@
 (= (convertRuleToPSI $rule)
     (if (== $rule ()) ()
     (let* (
-      (($id (($precedent --> $antecedent) ($freq $conf))) $rule)
+    ;   ($_ (println! ("Converting Rule" $rule)))
+      ((($precedent --> $antecedent) ($freq $conf)) $rule)
+
+      ;; temporary id assignment
+      ;; solution for temp id is to have the total rule size and continue from there
+      ($id 25) 
+
       ($complexity (size-atom $antecedent))
       ($truthValue (STV $freq $conf)) 
       (($context $action) $precedent)
+    ;   ($_ (println! ("debug here for context format" $context)))
       ($goal $antecedent)
 
     )
@@ -46,12 +93,21 @@
         (TTV 0)
         $truthValue
         (Complexity $complexity)
-        (IMPLICATION (AND $context $action) $goal)
-      )
-      
-    )
+        (IMPLICATION 
+            (AND 
+                (Context 
+                    (STV 0.2 0.1) ;; hardcoded for now
+                    (AND $context)
+                )
+                (Action (SEQ_AND $action)))
+            (Goal 
+                (STV 0.2 0.1) ;; hardcoded for now
+                (AND $goal)
+            )
+        )))
     )
 )
+
 (= (convertRulesToPSI $rules) (collapse (convertRuleToPSI (superpose $rules))))
 (= (addRules $space) 
     (let $rules (superpose (
@@ -124,170 +180,6 @@
     ))
 )) (add-atom $space $rules) ))
 
-;;(= (addRules $space)
-;;    (let $rules (superpose 
-;;  (
-;;    (: Rule 1
-;;      (TTV 0)
-;;      (STV 0.6 0.01)
-;;      (Complexity 2)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.4 0.1)
-;;                  (AND
-;;                      (HAS_CAPITAL (STV 0.5 0.1))
-;;                      (PRICE_LOW (STV 0.6 0.1) (COMMODITY_A))
-;;                      (SYSTEM_VISITED (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (BUY (COMMODITY_A))
-;;                  ))
-;;          )
-;;          (Goal (STV 0.5 0.1)
-;;              (AND
-;;                  (INVENTORY_INCREASED (STV 0.5 0.1))
-;;                  (PROFIT_POTENTIAL (STV 0.6 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;  (: Rule 2
-;;      (TTV 0)
-;;      (STV 0.7 0.02)
-;;      (Complexity 3)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.5 0.1)
-;;                  (AND
-;;                      (EVENT_ACTIVE (STV 0.6 0.1) (FAMINE))
-;;                      (COMMODITY_TYPE (STV 0.5 0.1) (FOOD))
-;;                      (INVENTORY_AVAILABLE (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (TRAVEL_TO (AFFECTED_SYSTEM))
-;;                      (SELL (FOOD))
-;;                  ))
-;;          )
-;;          (Goal (STV 0.7 0.1)
-;;              (AND
-;;                  (PROFIT_REALIZED (STV 0.7 0.1))
-;;                  (CAPITAL_INCREASED (STV 0.6 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;  (: Rule 3
-;;      (TTV 0)
-;;      (STV 0.65 0.015)
-;;      (Complexity 4)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.4 0.1)
-;;                  (AND
-;;                      (KNOWS_PRODUCTION_CHAIN (STV 0.6 0.1))
-;;                      (ROUTE_AVAILABLE (STV 0.5 0.1))
-;;                      (FUEL_SUFFICIENT (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (BUY (RAW_MATERIAL))
-;;                      (TRAVEL_TO (INDUSTRIAL_SYSTEM))
-;;                      (SELL (RAW_MATERIAL))
-;;                      (BUY (REFINED_GOODS))
-;;                  ))
-;;          )
-;;          (Goal (STV 0.6 0.1)
-;;              (AND
-;;                  (TRADE_CYCLE_COMPLETED (STV 0.5 0.1))
-;;                  (LONG_TERM_PROFIT (STV 0.6 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;  (: Rule 4
-;;      (TTV 0)
-;;      (STV 0.55 0.02)
-;;      (Complexity 3)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.5 0.1)
-;;                  (AND
-;;                      (EVENT_ACTIVE (STV 0.6 0.1) (UNREST))
-;;                      (RISK_LEVEL_HIGH (STV 0.5 0.1))
-;;                      (CAPITAL_LOW (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (AVOID_SYSTEM)
-;;                  ))
-;;          )
-;;          (Goal (STV 0.5 0.1)
-;;              (AND
-;;                  (CAPITAL_PRESERVED (STV 0.5 0.1))
-;;                  (LOSS_AVOIDED (STV 0.6 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;  (: Rule 5
-;;      (TTV 0)
-;;      (STV 0.6 0.02)
-;;      (Complexity 5)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.5 0.1)
-;;                  (AND
-;;                      (PERFORMANCE_EVALUATED (STV 0.6 0.1))
-;;                      (PROFIT_TREND_DOWN (STV 0.5 0.1))
-;;                      (STRATEGY_ACTIVE (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (UPDATE_RISK_PROFILE)
-;;                      (REFINE_TRADING_RULES)
-;;                  ))
-;;          )
-;;          (Goal (STV 0.6 0.1)
-;;              (AND
-;;                  (STRATEGY_ADAPTED (STV 0.6 0.1))
-;;                  (EXPECTED_PROFIT_INCREASED (STV 0.5 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;  (: Rule 6
-;;      (TTV 0)
-;;      (STV 0.58 0.015)
-;;      (Complexity 3)
-;;      (IMPLICATION
-;;          (AND
-;;              (Context (STV 0.4 0.1)
-;;                  (AND
-;;                      (MULTIPLE_ROUTES_AVAILABLE (STV 0.5 0.1))
-;;                      (TRAVEL_COST_HIGH (STV 0.4 0.1))
-;;                  ))
-;;              (Action
-;;                  (SEQ_AND
-;;                      (SELECT_OPTIMAL_ROUTE)
-;;                  ))
-;;          )
-;;          (Goal (STV 0.5 0.1)
-;;              (AND
-;;                  (TRAVEL_COST_REDUCED (STV 0.5 0.1))
-;;                  (NET_PROFIT_IMPROVED (STV 0.6 0.1))
-;;              ))
-;;      )
-;;  )
-;;
-;;)
-;;) (add-atom $space $rules)))
-
-;; What if I use the following format ($id $rule-narsese)
-
-!(addRules &rulespace)
-
 
 (= (add-atoms $space $values)
   (if (== $values ()) () 
@@ -334,9 +226,9 @@
 (= (|- $rule1 $rule2)
     (let* (
         (($id1 $narsRule1) $rule1)
-        ($_ (println! (narsRule1 $narsRule1)))
+        ; ($_ (println! (narsRule1 $narsRule1)))
         (($id2 $narsRule2) $rule2)
-        ($_ (println! (narsRule2 $narsRule2)))
+        ; ($_ (println! (narsRule2 $narsRule2)))
         ($result (reason $narsRule1 $narsRule2))
         ($_ (println! (resultInference $result)))
       )
@@ -351,11 +243,11 @@
      $accum
     (let* (
         (($head $tail) (decons-atom $rules))
-        ($_ (println! (forApplication $rule space $head)))
+        ; ($_ (println! (forApplication $rule space $head)))
         ($result (|- $rule $head))
-        ($_ (println! (results $result)))
+        ; ($_ (println! (results $result)))
         ($reduced (isReduced $result))
-        ($_ (println! (reduced $reduced)))
+        ; ($_ (println! (reduced $reduced)))
         ($accum' (if (not $reduced) $accum (union-atom $accum ($result))))
     ) 
       (applyInferenceForRule $rule $tail  $accum')
@@ -368,7 +260,7 @@
      $accum
     (let* (
       (($head $tail) (decons-atom $rules))
-      ($_ (println! (decons-result $head $tail)))
+    ;   ($_ (println! (decons-result $head $tail)))
       ($inferedRules (applyInferenceForRule $head $tail ()))
       ($_ (println! (inferedRules $inferedRules)))
       ($ruleSize (size-atom $inferedRules))
@@ -409,6 +301,7 @@
     let* (
         ($_ (println! (Current Values: Contexts: $contexts Goals: $goals)))
         ($rules (collapse (get-atoms $ruleSpace)))
+        ($_ (println! ("Total Rules:"  (size-atom $rules))))
         ($matchingGoals (matchGoals $goals $rules))
         ($_ (println! (Matched Goals:  $matchingGoals)))
         ($matchingContexts (matchContextRules $matchingGoals $contexts))
@@ -417,12 +310,17 @@
         ($_ (println! (Applicable Rules:  (size-atom $applicableRules))))
         (($sampledRule $sampledValue) (thompsonSample $applicableRules))
         ($_ (println! (Sampled Rule ID:  $sampledRule)))
-        ($actions (extractRule Action $sampledRule))
-        ($_ (println! (Performing Actions:  $actions)))
-        ($result (performActions $actions))
-        ($_ (println! (Resulting State:  $result)))
-        ($updatedRule (updateRule $sampledRule $result $ruleSpace))
-    ) ()
+    ) 
+    (if (== $sampledRule -1)
+        (println! (No rule selected))
+        (let* (
+            ($actions (extractRule Action $sampledRule))
+            ($_ (println! (Performing Actions:  $actions)))
+            ($result (performActions $actions))
+            ($_ (println! (Resulting State:  $result)))
+            ($updatedRule (updateRule $sampledRule $result $ruleSpace))
+        ) () )
+    )
 ))
 
 (= (reasoningSelector $context $goal $space $cacheSpace)
@@ -440,6 +338,11 @@
     (psiPlanner $context $goal $space)
   )
 )
+
+
+; !(addRules &rulespace)
+; !(reasoningSelector (LEFT_SQUARE STILL_ALIVE) (CENTER_SQUARE STILL_ALIVE) &rulespace &cachespace)
+
 ;;!(intersection-atom ((((LEFT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) ((CENTER_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1)))) ( (((LEFT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) ((CENTER_SQUARE (STV 0.2 0.1)) (DEAD (STV 0.2 0.1))))) 
 ;;(((((LEFT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) --> ((CENTER_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1)))) (STV 0.5 0.002))
 ;;!(match &self (($a --> $b) $c) $c)
@@ -447,7 +350,7 @@
 ;;!(reason (((((LEFT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) --> ((CENTER_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1)))) (STV 0.5 0.002)) 
 ;;          (((((LEFT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) --> ((CENTER_SQUARE (STV 0.2 0.1)) (DEAD (STV 0.2 0.1)))) (STV 0.5 0.002)))
 ;;!(applyInference &rulespace)
-!(reasoningSelector (LEFT_SQUARE STILL_ALIVE) (CENTER_SQUARE STILL_ALIVE) &rulespace &cachespace)
 
 
 ;;!(convertRuleToPSI (1 (((((CENTER_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1))) (MOVE_RIGHT)) --> ((RIGHT_SQUARE (STV 0.2 0.1)) (STILL_ALIVE (STV 0.2 0.1)))) (0.5 0.002))))
+
